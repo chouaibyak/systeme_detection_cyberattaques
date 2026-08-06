@@ -9,3 +9,46 @@ services:
     volumes:
       - ./honeypot/cowrie/etc/cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg
       - ./honeypot/cowrie/var:/cowrie/cowrie-git/var
+
+  # 2. La Base de Données (Ajouté)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Limite la RAM pour ta VM VMware
+    ports:
+      - "9200:9200"
+    restart: always
+
+  # 3. L'API d'Analyse
+  fastapi:
+    build: ./analyse_layer
+    container_name: fastapi
+    ports:
+      - "8000:8000"
+    restart: always
+    depends_on:
+      - elasticsearch # Attend que la base de données soit lancée
+
+  # 4. Le transporteur (Shipper)
+  shipper:
+    build: ./shipper
+    container_name: shipper
+    restart: always
+    volumes:
+      - ./honeypot/cowrie/var/log/cowrie:/var/log/cowrie:ro
+    depends_on:
+      - fastapi
+    
+  #5. Kibana
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    restart: always
+    depends_on:
+      - elasticsearch
