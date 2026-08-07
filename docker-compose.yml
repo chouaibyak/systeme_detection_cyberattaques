@@ -40,15 +40,3 @@ services:
       - ./honeypot/cowrie/var/log/cowrie:/var/log/cowrie:ro
     depends_on:
       - fastapi
-    
-  #5. Kibana
-  kibana:
-    image: docker.elastic.co/kibana/kibana:7.17.0
-    container_name: kibana
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    ports:
-      - "5601:5601"
-    restart: always
-    depends_on:
-      - elasticsearch

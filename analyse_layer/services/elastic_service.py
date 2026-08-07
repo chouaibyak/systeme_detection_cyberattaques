@@ -8,5 +8,5 @@ def store_log(index_name, log_data):
         res = es.index(index=index_name, document=log_data)
         return res['_id']
     except Exception as e:
-        print(f" Erreur stockage Elasticsearch : {e}")
+        print(f"Erreur stockage [{index_name}] : {e}")
         return None
