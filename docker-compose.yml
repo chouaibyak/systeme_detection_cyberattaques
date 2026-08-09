@@ -10,6 +10,20 @@ services:
       - ./honeypot/cowrie/etc/cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg
       - ./honeypot/cowrie/var:/cowrie/cowrie-git/var
 
+  honeytrap:
+    image: honeytrap/honeytrap:latest
+    container_name: honeytrap
+    volumes:
+      - ./honeypot/honeytrap/etc/config.toml:/config/config.toml:ro
+      - ./honeypot/honeytrap/log:/var/log/honeytrap
+      - ./honeypot/honeytrap/assets:/config/assets:ro
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3306:3306"
+      - "5900:5900"
+    restart: always
+
   # 2. La Base de Données (Ajouté)
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
