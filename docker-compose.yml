@@ -20,6 +20,8 @@ services:
     ports:
       - "9200:9200"
     restart: always
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
 
   # 3. L'API d'Analyse
   fastapi:
@@ -40,3 +42,9 @@ services:
       - ./honeypot/cowrie/var/log/cowrie:/var/log/cowrie:ro
     depends_on:
       - fastapi
+volumes:
+  esdata:
+    # Volume volontairement externe : `docker compose down -v` ne le supprime pas.
+    # Créer une seule fois avec : docker volume create pfa_esdata
+    external: true
+    name: pfa_esdata
