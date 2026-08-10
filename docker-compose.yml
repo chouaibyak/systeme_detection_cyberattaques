@@ -37,7 +37,7 @@ services:
       - ./honeypot/honeytrap/assets:/config/assets:ro
     ports:
       - "80:80"
-      - "443:443"
+      - "8443:443"
       - "3306:3306"
       - "5900:5900"
     restart: always
