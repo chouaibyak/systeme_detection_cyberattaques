@@ -10,6 +10,24 @@ services:
       - ./honeypot/cowrie/etc/cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg
       - ./honeypot/cowrie/var:/cowrie/cowrie-git/var
 
+  
+  dionaea:
+    image: dinotools/dionaea:latest
+    container_name: dionaea
+    restart: unless-stopped
+    ports:
+      - "21:21"      # FTP
+      - "42:42"      # WINS
+      - "69:69/udp"  # TFTP
+      - "135:135"    # RPC
+      - "443:443"    # HTTPS
+      - "445:445"    # SMB (le plus important pour capturer des malwares)
+      - "1433:1433"  # MSSQL
+      - "1723:1723"  # PPTP
+      - "3306:3306"  # MySQL
+    volumes:
+      - ./honeypot/dionaea/etc/dionaea:/opt/dionaea/etc/dionaea
+      - ./honeypot/dionaea/var:/opt/dionaea/var/lib/dionaea
   honeytrap:
     image: honeytrap/honeytrap:latest
     container_name: honeytrap
