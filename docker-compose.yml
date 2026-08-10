@@ -72,6 +72,8 @@ services:
     restart: always
     volumes:
       - ./honeypot/cowrie/var/log/cowrie:/var/log/cowrie:ro
+      - ./honeypot/dionaea/var:/opt/dionaea/var/lib/dionaea:ro
+      - ./honeypot/honeytrap/log:/var/log/honeytrap:ro
     depends_on:
       - fastapi
 volumes:
