@@ -37,7 +37,7 @@ services:
       - ./honeypot/honeytrap/assets:/config/assets:ro
     ports:
       - "80:80"
-      - "443:443"
+      - "8443:443"
       - "3306:3306"
       - "5900:5900"
     restart: always
@@ -72,6 +72,8 @@ services:
     restart: always
     volumes:
       - ./honeypot/cowrie/var/log/cowrie:/var/log/cowrie:ro
+      - ./honeypot/dionaea/var:/opt/dionaea/var/lib/dionaea:ro
+      - ./honeypot/honeytrap/log:/var/log/honeytrap:ro
     depends_on:
       - fastapi
 volumes:
