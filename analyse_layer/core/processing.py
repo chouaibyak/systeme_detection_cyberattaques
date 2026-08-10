@@ -1,14 +1,21 @@
-def clean_cowrie_log(raw_log):
-    # Liste des champs importants que tu as choisis
-    champs_a_garder = [
-        "timestamp", "src_ip", "session", "eventid", 
-        "src_port", "dst_port", "username", "password", "input"
-    ]
-    
-    # On crée un nouveau dictionnaire avec seulement ces champs
-    processed_log = {k: v for k, v in raw_log.items() if k in champs_a_garder}
-    
-    # Ajout du type de honeypot pour le tri dans Elasticsearch
-    processed_log["honeypot_type"] = "cowrie"
-    
-    return processed_log
+def process_log_for_ml(log_data: dict):
+    """
+    Nettoie et transforme le log brut en format 'Features' 
+    pour l'Isolation Forest.
+    """
+    source = log_data.get("honeypot_source")
+    processed_data = {}
+
+    if source == "cowrie":
+        # Exemple : on garde la commande et la longueur
+        processed_data["event_id"] = log_data.get("eventid")
+        processed_data["input"] = log_data.get("input", "")
+        processed_data["input_len"] = len(log_data.get("input", ""))
+        
+    elif source == "dionaea":
+        processed_data["connection_type"] = log_data.get("connection", {}).get("type")
+        processed_data["remote_port"] = log_data.get("remote_port")
+
+    # TODO: Ajouter ici la conversion en nombres (LabelEncoding)
+    # print(f"Processing done for {source}")
+    return processed_data
