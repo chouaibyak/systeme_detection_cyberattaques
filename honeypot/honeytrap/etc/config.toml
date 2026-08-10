@@ -1,0 +1,43 @@
+[listener]
+type = "socket"
+
+[[port]]
+port = "tcp/80"
+services = ["http"]
+
+[[port]]
+port = "tcp/443"
+services = ["https"]
+
+[[port]]
+port = "tcp/3306"
+services = ["mysql"]
+
+[[port]]
+port = "tcp/5900"
+services = ["vnc"]
+
+[service.http]
+type = "http"
+
+[service.https]
+type = "https"
+
+[service.mysql]
+type = "echo"
+
+[service.vnc]
+type = "vnc"
+image = "/config/assets/vnc.png"
+server-name = "VNC Server"
+
+[channel.json]
+type = "file"
+filename = "/var/log/honeytrap/honeytrap.json"
+
+[[filter]]
+channel = ["json"]
+
+[[logging]]
+output = "stdout"
+level = "info"
