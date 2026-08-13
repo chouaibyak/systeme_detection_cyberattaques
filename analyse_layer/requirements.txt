@@ -6,4 +6,3 @@ aiohttp
 pydantic
 scikit-learn
 numpy
-pyattck

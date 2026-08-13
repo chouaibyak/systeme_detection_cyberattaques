@@ -1,10 +1,16 @@
-from pyattck import Attck
+import json
+import os
 import re
+from pathlib import Path
 
 class MitreAnalyzer:
     def __init__(self):
-        # On charge le framework une seule fois
-        self.attck = Attck()
+        # Le bundle officiel STIX 2.1 est intégré à l'image Docker à la
+        # construction. L'analyse n'effectue donc aucun appel réseau.
+        data_path = Path(
+            os.getenv("MITRE_ATTACK_DATA", "/app/data/enterprise-attack.json")
+        )
+        self.techniques = self._load_official_catalog(data_path)
 
        # 1. PRÉ-TRAITEMENT : On compile les Regex pour la performance
         # On utilise re.IGNORECASE pour ne pas se soucier de la casse
@@ -58,21 +64,70 @@ class MitreAnalyzer:
             3389: "T1110",  # RDP -> Brute Force
             5900: "T1021.005", # VNC -> Remote Services
         }
+        self.DB_ATTACK_PATTERNS = {
+            "T1190": re.compile(r"\b(union\s+select|select\s+.*\s+from|sleep\s*\(|benchmark\s*\()", re.I),
+            "T1505.001": re.compile(r"\b(xp_cmdshell|into\s+outfile|load_file\s*\()", re.I),
+        }
+
+    @staticmethod
+    def _format_tactic(tactic):
+        return tactic.replace("-", " ").title() if tactic else "Inconnu"
+
+    def _load_official_catalog(self, data_path):
+        if not data_path.is_file():
+            raise RuntimeError(f"Catalogue ATT&CK introuvable : {data_path}")
+
+        with data_path.open(encoding="utf-8") as catalog_file:
+            objects = json.load(catalog_file)["objects"]
+
+        mitigation_names = {
+            item["id"]: item["name"]
+            for item in objects
+            if item.get("type") == "course-of-action"
+        }
+        mitigations_by_technique = {}
+        for item in objects:
+            if item.get("type") == "relationship" and item.get("relationship_type") == "mitigates":
+                mitigations_by_technique.setdefault(item["target_ref"], []).append(
+                    mitigation_names.get(item["source_ref"])
+                )
+
+        techniques = {}
+        for item in objects:
+            if item.get("type") != "attack-pattern" or item.get("revoked") or item.get("x_mitre_deprecated"):
+                continue
+            attack_id = next(
+                (
+                    reference.get("external_id")
+                    for reference in item.get("external_references", [])
+                    if reference.get("source_name") == "mitre-attack"
+                    and reference.get("external_id", "").startswith("T")
+                ),
+                None,
+            )
+            if not attack_id:
+                continue
+            tactics = [
+                self._format_tactic(phase.get("phase_name"))
+                for phase in item.get("kill_chain_phases", [])
+                if phase.get("kill_chain_name") == "mitre-attack"
+            ]
+            mitigation = next(
+                (name for name in mitigations_by_technique.get(item["id"], []) if name),
+                "Surveiller, contenir la source et vérifier les journaux associés.",
+            )
+            techniques[attack_id] = {
+                "id": attack_id,
+                "name": item["name"],
+                "tactic": tactics[0] if tactics else "Inconnu",
+                "description": item.get("description") or "Pas de description disponible.",
+                "advice": mitigation,
+            }
+        return techniques
 
     def get_technique_info(self, technique_id):
-        """Récupère les détails officiels depuis la base MITRE"""
-        for technique in self.attck.enterprise.techniques:
-            if technique.technique_id == technique_id:
-                # On nettoie la description pour qu'elle soit courte et compréhensible
-                desc = technique.description.split('.')[0] + "." if technique.description else "Pas de description."
-                return {
-                    "id": technique.technique_id,
-                    "name": technique.name,
-                    "tactic": technique.tactics[0].name if technique.tactics else "Inconnu",
-                    "description": desc,
-                    "advice": technique.mitigations[0].name if technique.mitigations else "Surveiller et bloquer l'IP source"
-                }
-        return None
+        """Récupère les détails du catalogue STIX officiel embarqué."""
+        return self.techniques.get(technique_id)
 
     def clean_command(self, cmd):
         """
@@ -86,6 +141,10 @@ class MitreAnalyzer:
     def map_log_to_mitre(self, normalized_log):
         extra = normalized_log.get("extra_info", {})
         port = normalized_log.get("dst_port")
+        try:
+            port = int(port) if port is not None else None
+        except (TypeError, ValueError):
+            port = None
         tech_id = None
 
         if normalized_log["honeypot"] == "cowrie":
@@ -146,6 +205,6 @@ class MitreAnalyzer:
             elif normalized_log["honeypot"] == "cowrie":
                 tech_id = "T1021"
             else:
-                tech_id = "T1352"
+                tech_id = "T1046"
 
         return self.get_technique_info(tech_id)

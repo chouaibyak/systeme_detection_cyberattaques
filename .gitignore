@@ -1,0 +1,28 @@
+# =========================
+# Logs
+# =========================
+*.log
+*.log.*
+**/log/
+**/logs/
+
+# =========================
+# Honeypot generated data
+# =========================
+honeypot/**/data/
+honeypot/**/var/bistreams/
+honeypot/**/var/lib/
+
+# Cowrie generated logs
+honeypot/cowrie/var/log/
+
+# Dionaea generated logs/data
+honeypot/dionaea/var/*.json
+honeypot/dionaea/var/*.sqlite
+
+# =========================
+# Python cache
+# =========================
+__pycache__/
+**/__pycache__/
+*.py[cod]

@@ -28,6 +28,17 @@ def send_log(source_name, log_data):
             time.sleep(2)
 
 
+def is_security_event(source_name, log_data):
+    """Ignore les événements de service qui ne décrivent pas une connexion."""
+    if source_name == "honeytrap":
+        # Honeytrap emits a heartbeat every 30 seconds.  Indexing these events
+        # floods Elasticsearch and makes the ML baseline meaningless.
+        return log_data.get("category") != "heartbeat" and bool(
+            log_data.get("source-ip") or log_data.get("source.ip") or log_data.get("src_ip")
+        )
+    return True
+
+
 def monitor_log(source_name, log_path):
     print(f"[*] Démarrage de la surveillance pour {source_name} : {log_path}")
 
@@ -58,7 +69,10 @@ def monitor_log(source_name, log_path):
                 
                 try:
                     log_data = json.loads(line)
-                    send_log(source_name, log_data)
+                    if is_security_event(source_name, log_data):
+                        send_log(source_name, log_data)
+                    else:
+                        print(f"[-] {source_name} : événement technique ignoré.")
 
                 except json.JSONDecodeError:
                     print(f"[!] {source_name} : Ligne JSON invalide ignorée.")
