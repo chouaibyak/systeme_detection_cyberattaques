@@ -14,6 +14,20 @@ HONEYPOTS_CONFIG = {
 }
 # =================================================
 
+def send_log(source_name, log_data):
+    """Envoie un événement sans le perdre si l'API redémarre."""
+    log_data["honeypot_source"] = source_name
+    while True:
+        try:
+            response = requests.post(API_URL, json=log_data, timeout=5)
+            response.raise_for_status()
+            print(f"[OK] {source_name} -> Log envoyé avec succès !")
+            return
+        except requests.exceptions.RequestException as error:
+            print(f"[!] {source_name} : API indisponible ({error}), nouvel essai dans 2 s.")
+            time.sleep(2)
+
+
 def monitor_log(source_name, log_path):
     print(f"[*] Démarrage de la surveillance pour {source_name} : {log_path}")
 
@@ -23,35 +37,31 @@ def monitor_log(source_name, log_path):
 
     try:
         with open(log_path, "r") as f:
-            # IMPORTANT: Laisse f.seek(0, 2) commenté pour lire l'historique
-            f.seek(0, 2) 
+            # Le service ne rejoue pas l'historique à chaque redémarrage.
+            f.seek(0, 2)
             
             print(f"[+] {source_name} : Lecture du fichier commencée...")
 
             while True:
                 line = f.readline()
                 if not line:
+                    # Cowrie effectue une rotation quotidienne : reprendre le
+                    # nouveau cowrie.json plutôt que rester attaché à l'ancien.
+                    try:
+                        if os.stat(log_path).st_ino != os.fstat(f.fileno()).st_ino:
+                            print(f"[*] {source_name} : rotation détectée, réouverture du journal.")
+                            return monitor_log(source_name, log_path)
+                    except FileNotFoundError:
+                        pass
                     time.sleep(0.1)
                     continue
                 
                 try:
                     log_data = json.loads(line)
-                    log_data["honeypot_source"] = source_name
-                    
-                    # ENVOI VERS FASTAPI
-                    response = requests.post(API_URL, json=log_data, timeout=5)
-                    
-                    if response.status_code == 200:
-                        # ON AJOUTE CE PRINT POUR VOIR QUE CA MARCHE !
-                        print(f"[OK] {source_name} -> Log envoyé avec succès !")
-                    else:
-                        print(f"[!] {source_name} : Erreur API {response.status_code}")
+                    send_log(source_name, log_data)
 
                 except json.JSONDecodeError:
                     print(f"[!] {source_name} : Ligne JSON invalide ignorée.")
-                except requests.exceptions.RequestException as e:
-                    print(f"[!] {source_name} : Erreur de connexion à FastAPI : {e}")
-                    time.sleep(2)
                 except Exception as e:
                     print(f"[!] {source_name} : Erreur imprévue : {e}")
 

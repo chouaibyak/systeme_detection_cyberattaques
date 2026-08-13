@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 from collections import defaultdict
+import numpy as np
+from sklearn.ensemble import IsolationForest
 
 class LogNormalizer:
     def __init__(self):
@@ -29,8 +31,12 @@ class LogNormalizer:
         whitelist = self.whitelists.get(source, [])
         normalized = {
             "timestamp": raw_log.get("timestamp") or raw_log.get("date") or datetime.now().isoformat(),
-            "source_ip": None, "dst_port": None, "protocol": None, "event_type": None,
-            "honeypot": source, "extra_info": {}
+            "source_ip": None,
+            "dst_port": None,
+            "protocol": None,
+            "event_type": None,
+            "honeypot": source,
+            "extra_info": {}
         }
         for std_key, raw_key in mapping.items():
             val = self._get_nested_value(raw_log, raw_key) if '.' in raw_key else raw_log.get(raw_key)
@@ -87,35 +93,155 @@ class FeatureExtractor:
         return features_by_ip
 
 # ==============================================================================
-# TEST COMPLET (Normalisation -> Extraction)
+# CLASSE : ML(Isolated Forest)
 # ==============================================================================
-if __name__ == "__main__":
-    # 1. Simulation d'un dataset de logs bruts (mélange de sources)
-    raw_dataset = [
-        # Attaquant 1 : Brute Force SSH (Beaucoup de tentatives, 1 port)
-        {"src_ip": "1.1.1.1", "dst_port": 2222, "protocol": "ssh", "eventid": "login.failed", "password": "123", "honeypot_source": "cowrie"},
-        {"src_ip": "1.1.1.1", "dst_port": 2222, "protocol": "ssh", "eventid": "login.failed", "password": "456", "honeypot_source": "cowrie"},
-        {"src_ip": "1.1.1.1", "dst_port": 2222, "protocol": "ssh", "eventid": "login.failed", "password": "789", "honeypot_source": "cowrie"},
+
+class SentinelML:
+    MIN_SAMPLES_FOR_ML = 8
+
+    def __init__(self, contamination=0.1):
+        """
+        Initialisation du moteur IA.
+        contamination : % d'anomalies attendues (ex: 0.1 = 10%)
+        """
+        self.model = IsolationForest(
+            contamination=contamination,
+            random_state=42,
+            n_estimators=100
+        )
+        self.is_trained = False
+
+    def predict_anomalies(self, features_by_ip):
+        """
+        Prend les features extraites par FeatureExtractor et rend un verdict.
+        """
+        if not features_by_ip:
+            return {}
+
+        # 1. Préparation des données (Dictionnaire -> Matrice NumPy)
+        ips = list(features_by_ip.keys())
+        X = []
+        for ip in ips:
+            f = features_by_ip[ip]
+            # On respecte toujours le même ordre de colonnes pour l'IA
+            vector = [
+                f["total_events"],
+                f["unique_ports"],
+                f["login_attempts"],
+                f["commands_count"],
+                f["unique_protocols"]
+            ]
+            X.append(vector)
+
+        # Isolation Forest compare plusieurs profils. Avec une seule IP (cas
+        # fréquent pendant un test Kali), fit_predict retourne forcément une
+        # activité normale. Les règles explicables prennent alors le relais.
+        if len(ips) < self.MIN_SAMPLES_FOR_ML:
+            return {
+                ip: {"is_alert": False, "risk_score": 0.0, "status": "BASELINE INSUFFICIENT"}
+                for ip in ips
+            }
+
+        X_array = np.array(X)
+
+        # 2. Entraînement et Détection
+        # Dans un Honeypot, on peut "re-train" à chaque batch pour s'adapter
+        predictions = self.model.fit_predict(X_array)
         
-        # Attaquant 2 : Scanner de ports (Peu d'événements, beaucoup de ports)
-        {"source-ip": "2.2.2.2", "destination-port": 80, "category": "http", "type": "connect", "honeypot_source": "honeytrap"},
-        {"source-ip": "2.2.2.2", "destination-port": 443, "category": "https", "type": "connect", "honeypot_source": "honeytrap"},
-        {"source-ip": "2.2.2.2", "destination-port": 5900, "category": "vnc", "type": "connect", "honeypot_source": "honeytrap"},
+        # 3. Calcul du Score de Risque (basé sur la distance de décision)
+        # Isolation Forest : Decision Function renvoie des valeurs négatives pour les anomalies
+        scores = self.model.decision_function(X_array)
+
+        results = {}
+        for i, ip in enumerate(ips):
+            # Normalisation du score sur 100 (plus c'est haut, plus c'est risqué)
+            risk_score = round(abs(scores[i]) * 100, 2)
+
+            is_anomaly = True if predictions[i] == -1 else False
+
+            results[ip] = {
+                "is_alert": is_anomaly,
+                "risk_score": risk_score,
+                "status": "ATTACK DETECTED" if is_anomaly else "✅ NORMAL"
+            }
         
-        # Attaquant 3 : Interaction riche (Dionaea + commandes)
-        {"src_ip": "3.3.3.3", "dst_port": 445, "connection": {"protocol": "smbd", "type": "accept"}, "honeypot_source": "dionaea"},
-        {"src_ip": "3.3.3.3", "dst_port": 2222, "protocol": "ssh", "eventid": "command", "input": "whoami", "honeypot_source": "cowrie"},
-        {"src_ip": "3.3.3.3", "dst_port": 2222, "protocol": "ssh", "eventid": "command", "input": "ls -la", "honeypot_source": "cowrie"},
-    ]
+        return results
 
-    # --- ÉTAPE 1 : Normalisation ---
-    normalizer = LogNormalizer()
-    normalized_logs = [normalizer.normalize(log) for log in raw_dataset]
 
-    # --- ÉTAPE 2 : Extraction de Features ---
-    extractor = FeatureExtractor()
-    final_features = extractor.extract_features(normalized_logs)
+class ThreatDetector:
+    """Détection hybride : règles comportementales et Isolation Forest."""
 
-    print("--- RÉSULTAT FINAL : VECTEURS POUR L'IA ---")
-    for ip, feats in final_features.items():
-        print(f"\nIP: {ip} -> Features: {feats}")
+    SENSITIVE_COMMANDS = (
+        "cat /etc/shadow", "cat /etc/passwd", "wget ", "curl ",
+        "chmod +x", "nc ", "ncat ", "bash -i", "python -c",
+    )
+
+    def detect(self, log, features, ml_verdict):
+        event_type = str(log["event_type"] or "").lower()
+        command = str(log["extra_info"].get("input", "")).lower().strip()
+        reasons = []
+
+        # Un événement sensible est signalé immédiatement, même sans baseline.
+        if any(token in command for token in self.SENSITIVE_COMMANDS):
+            reasons.append("commande sensible ou téléchargement détecté")
+        if features["login_attempts"] >= 5:
+            reasons.append(f"brute force SSH ({features['login_attempts']} tentatives)")
+        if features["unique_ports"] >= 5:
+            reasons.append(f"scan de ports ({features['unique_ports']} ports distincts)")
+        if "login.failed" in event_type and features["login_attempts"] >= 3:
+            reasons.append(f"échecs d'authentification répétés ({features['login_attempts']})")
+        if ml_verdict and ml_verdict["is_alert"]:
+            reasons.append("anomalie statistique (Isolation Forest)")
+
+        if reasons:
+            risk_score = min(
+                100,
+                45 + 15 * len(reasons) + 2 * features["login_attempts"] + 3 * features["unique_ports"],
+            )
+            return {
+                "is_alert": True,
+                "risk_score": risk_score,
+                "status": "ATTACK DETECTED",
+                "reasons": reasons,
+            }
+
+        return {
+            "is_alert": False,
+            "risk_score": ml_verdict["risk_score"] if ml_verdict else 0.0,
+            "status": "NORMAL",
+            "reasons": [],
+        }
+
+
+# Instances globales pour le conteneur FastAPI
+normalizer = LogNormalizer()
+extractor = FeatureExtractor()
+ml_engine = SentinelML(contamination=0.1) # 10% d'anomalies attendues
+threat_detector = ThreatDetector()
+memory_logs = [] # Liste pour stocker les logs récents en RAM
+
+def process_log_for_ml(raw_log):
+    global memory_logs
+
+    # 1. Normalisation
+    norm = normalizer.normalize(raw_log)
+    if not norm: return
+
+    # 2. Ajout à la mémoire (on garde les 200 derniers logs pour calculer les stats)
+    memory_logs.append(norm)
+    if len(memory_logs) > 200: memory_logs.pop(0)
+
+    # 3. Extraction des features par IP
+    all_features = extractor.extract_features(memory_logs)
+
+    # 4. Diagnostic IA
+    ml_verdicts = ml_engine.predict_anomalies(all_features)
+
+    # 5. Affichage du résultat dans les logs Docker
+    target_ip = norm["source_ip"]
+    if target_ip in all_features:
+        v = threat_detector.detect(norm, all_features[target_ip], ml_verdicts.get(target_ip))
+        if v["is_alert"]:
+            print(f"\n[!!! ALERT !!!] IP: {target_ip} | Score: {v['risk_score']} | Status: {v['status']} | Raisons: {', '.join(v['reasons'])}")
+        else:
+            print(f"[ML INFO] IP: {target_ip} analysée. Activité normale (Score: {v['risk_score']})")

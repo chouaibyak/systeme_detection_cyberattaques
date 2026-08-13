@@ -3,6 +3,9 @@ services:
   cowrie:
     image: cowrie/cowrie:latest
     container_name: cowrie
+    # Les journaux montés depuis l'hôte appartiennent à l'utilisateur local
+    # (UID/GID 1000). Cette identité permet à jsonlog de les ouvrir en écriture.
+    user: "1000:1000"
     restart: always
     ports:
       - "2222:2222"
@@ -59,6 +62,8 @@ services:
   fastapi:
     build: ./analyse_layer
     container_name: fastapi
+    environment:
+      - PYTHONUNBUFFERED=1
     ports:
       - "8000:8000"
     restart: always
