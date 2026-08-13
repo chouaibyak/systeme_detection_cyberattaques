@@ -1,6 +1,5 @@
 import numpy as np
 from sklearn.ensemble import IsolationForest
-from .classifier import AttackClassifier
 
 
 class SentinelML:
@@ -22,8 +21,10 @@ class SentinelML:
                 f["total_events"],
                 f["unique_ports"],
                 f["login_attempts"],
-                f["danger_score"], # <--- Changement ici
-                f["unique_protocols"]
+                f["danger_score"], 
+                f["unique_protocols"],
+                f["eps"], 
+                f["iat"]
             ]
             X.append(vector)
 
@@ -46,37 +47,14 @@ class SentinelML:
         return results
 
 class ThreatDetector:
-    def __init__(self):
-        self.classifier = AttackClassifier() # On intègre le nouveau module
-
     def detect(self, log, features, ml_verdict):
-        # 1. On demande au module de classification de nommer l'attaque
-        attack_categories = self.classifier.classify(features, log["extra_info"])
-        
-        reasons = []
-        
-        # 2. On construit les raisons de l'alerte
-        for category in attack_categories:
-            reasons.append(category)
-            
+        """Retourne uniquement le verdict du détecteur d'anomalies ML."""
         if ml_verdict and ml_verdict["is_alert"]:
-            reasons.append("anomalie statistique (Isolation Forest)")
-
-        # 3. Décision finale : Est-ce une alerte ?
-        # On déclenche l'alerte si l'IA a vu une anomalie OU si on a des catégories d'attaque
-        is_alert = ml_verdict["is_alert"] if ml_verdict else False
-        # On force l'alerte si on a détecté une catégorie d'attaque critique
-        if len(attack_categories) > 0 and "Unspecified Anomaly" not in attack_categories:
-            is_alert = True
-
-        if is_alert:
-            # Calcul du score de risque basé sur la gravité des catégories
-            risk_score = min(100, 50 + (len(attack_categories) * 10))
             return {
                 "is_alert": True,
-                "risk_score": risk_score,
-                "status": "ATTACK DETECTED",
-                "reasons": reasons,
+                "risk_score": ml_verdict["risk_score"],
+                "status": ml_verdict["status"],
+                "reasons": ["anomalie statistique (Isolation Forest)"],
             }
 
         return {

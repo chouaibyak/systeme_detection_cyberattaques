@@ -1,33 +1,40 @@
 from .normalizer import LogNormalizer
 from .extractor import FeatureExtractor
 from .detector import SentinelML, ThreatDetector
+from services.elastic_service import get_recent_logs # <--- Importation du nouveau service
 
-# --- Initialisation des instances globales ---
+# Instances globales
 normalizer = LogNormalizer()
 extractor = FeatureExtractor()
 ml_engine = SentinelML(contamination=0.1)
 threat_detector = ThreatDetector()
-memory_logs = [] # Liste pour stocker les logs récents en RAM
 
-def process_log_for_ml(raw_log):
-    global memory_logs
-
-    # 1. Normalisation (utilise la classe dans normalizer.py)
+async def process_log_for_ml(raw_log):
+    # 1. Normalisation du log actuel
     norm = normalizer.normalize(raw_log)
     if not norm: return
 
-    # 2. Gestion de la mémoire
-    memory_logs.append(norm)
-    if len(memory_logs) > 200: 
-        memory_logs.pop(0)
+    # 2. RÉSOLUTION DU PROBLÈME DE MÉMOIRE
+    # Au lieu d'une liste en RAM, on récupère l'historique récent depuis Elasticsearch
+    # On récupère les 500 derniers logs pour avoir une baseline statistique solide
+    historical_raw_logs = await get_recent_logs(limit=500)
+    
+    # On normalise tous les logs récupérés d'Elasticsearch
+    normalized_history = []
+    for raw in historical_raw_logs:
+        n = normalizer.normalize(raw)
+        if n: normalized_history.append(n)
+    
+    # On ajoute le log actuel à l'histoire pour l'analyse
+    normalized_history.append(norm)
 
-    # 3. Extraction des features (utilise la classe dans extractor.py)
-    all_features = extractor.extract_features(memory_logs)
+    # 3. Extraction des features sur l'historique complet
+    all_features = extractor.extract_features(normalized_history)
 
-    # 4. Diagnostic IA (utilise la classe dans detector.py)
+    # 4. Diagnostic IA
     ml_verdicts = ml_engine.predict_anomalies(all_features)
 
-    # 5. Analyse finale et Alerte (utilise la classe dans detector.py)
+    # 5. Affichage du résultat
     target_ip = norm["source_ip"]
     if target_ip in all_features:
         v = threat_detector.detect(norm, all_features[target_ip], ml_verdicts.get(target_ip))

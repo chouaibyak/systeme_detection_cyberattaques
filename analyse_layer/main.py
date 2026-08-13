@@ -14,11 +14,10 @@ async def ingest_logs(request: Request, background_tasks: BackgroundTasks):
     log_data = await request.json()
     source = log_data.get("honeypot_source", "unknown")
 
-    # 2. Lancement en PARALLÈLE des tâches de fond
-    # Tâche 1 : Archivage brut (Elasticsearch)
-    background_tasks.add_task(index_log_to_elastic, log_data, source)
-    
-    # Tâche 2 : Préparation pour IA (Data Processing)
+    # Les tâches de fond sont exécutées dans leur ordre d'ajout. L'analyse
+    # précède l'archivage afin que le log courant ne soit pas compté deux fois
+    # lors de la reconstruction de l'historique Elasticsearch.
     background_tasks.add_task(process_log_for_ml, log_data)
+    background_tasks.add_task(index_log_to_elastic, log_data, source)
 
     return {"status": "received", "source": source}
