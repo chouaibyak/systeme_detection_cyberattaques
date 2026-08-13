@@ -1,0 +1,11 @@
+# Ignorer tous les fichiers et dossiers de logs
+*.log
+*.log.*
+**/log/
+**/logs/
+
+# Ignorer les dossiers de données des honeypots
+honeypot/**/data/
+
+# Ignorer les dossiers de cache Python
+__pycache__/
