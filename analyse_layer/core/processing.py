@@ -3,6 +3,7 @@ from datetime import datetime
 from collections import defaultdict
 import numpy as np
 from sklearn.ensemble import IsolationForest
+from core.mitre_analyzer import MitreAnalyzer
 
 class LogNormalizer:
     def __init__(self):
@@ -219,29 +220,32 @@ extractor = FeatureExtractor()
 ml_engine = SentinelML(contamination=0.1) # 10% d'anomalies attendues
 threat_detector = ThreatDetector()
 memory_logs = [] # Liste pour stocker les logs récents en RAM
+mitre_analyzer = MitreAnalyzer()
 
 def process_log_for_ml(raw_log):
     global memory_logs
-
-    # 1. Normalisation
     norm = normalizer.normalize(raw_log)
     if not norm: return
 
-    # 2. Ajout à la mémoire (on garde les 200 derniers logs pour calculer les stats)
     memory_logs.append(norm)
     if len(memory_logs) > 200: memory_logs.pop(0)
 
-    # 3. Extraction des features par IP
     all_features = extractor.extract_features(memory_logs)
-
-    # 4. Diagnostic IA
     ml_verdicts = ml_engine.predict_anomalies(all_features)
 
-    # 5. Affichage du résultat dans les logs Docker
     target_ip = norm["source_ip"]
     if target_ip in all_features:
         v = threat_detector.detect(norm, all_features[target_ip], ml_verdicts.get(target_ip))
+        
+        # --- NOUVEAU : AJOUT DE MITRE ATT&CK ---
         if v["is_alert"]:
-            print(f"\n[!!! ALERT !!!] IP: {target_ip} | Score: {v['risk_score']} | Status: {v['status']} | Raisons: {', '.join(v['reasons'])}")
-        else:
-            print(f"[ML INFO] IP: {target_ip} analysée. Activité normale (Score: {v['risk_score']})")
+            mitre_info = mitre_analyzer.map_log_to_mitre(norm)
+            
+            print(f"\n[!!! ALERTE SÉCURITÉ !!!]")
+            print(f"IP Attaquante : {target_ip}")
+            if mitre_info:
+                print(f"Type d'Attaque : {mitre_info['name']}")
+                print(f"Phase (Tactique) : {mitre_info['tactic']}")
+                print(f"Explication : {mitre_info['description']}")
+                print(f"Conseil : {mitre_info['advice']}")
+            print(f"Score de risque : {v['risk_score']}/100")
