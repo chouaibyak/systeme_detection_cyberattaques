@@ -1,12 +1,23 @@
-from elasticsearch import Elasticsearch
+from elasticsearch import AsyncElasticsearch
+import datetime
+import os
 
-# Connexion à Elasticsearch (le nom 'elasticsearch' vient du docker-compose)
-es = Elasticsearch(["http://elasticsearch:9200"])
+# On récupère l'URL depuis les variables d'environnement (docker-compose)
+ES_URL = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
+es = AsyncElasticsearch([ES_URL])
 
-def store_log(index_name, log_data):
+async def index_log_to_elastic(log_data: dict, source: str):
+    """Archive le log brut dans un index spécifique à l'honeypot"""
     try:
-        res = es.index(index=index_name, document=log_data)
-        return res['_id']
+        index_name = f"honeypot-logs-{source.lower()}"
+        
+        # Ajout d'un timestamp si absent
+        if "@timestamp" not in log_data:
+            log_data["@timestamp"] = datetime.datetime.utcnow().isoformat()
+
+        await es.index(index=index_name, document=log_data)
     except Exception as e:
-        print(f"Erreur stockage [{index_name}] : {e}")
-        return None
+        print(f"Error Indexing to ES: {e}")
+
+async def close_elastic():
+    await es.close()

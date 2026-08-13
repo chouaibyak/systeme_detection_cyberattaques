@@ -1,11 +1,28 @@
-# Ignorer tous les fichiers et dossiers de logs
+# =========================
+# Logs
+# =========================
 *.log
 *.log.*
 **/log/
 **/logs/
 
-# Ignorer les dossiers de données des honeypots
+# =========================
+# Honeypot generated data
+# =========================
 honeypot/**/data/
+honeypot/**/var/bistreams/
+honeypot/**/var/lib/
 
-# Ignorer les dossiers de cache Python
+# Cowrie generated logs
+honeypot/cowrie/var/log/
+
+# Dionaea generated logs/data
+honeypot/dionaea/var/*.json
+honeypot/dionaea/var/*.sqlite
+
+# =========================
+# Python cache
+# =========================
 __pycache__/
+**/__pycache__/
+*.py[cod]
