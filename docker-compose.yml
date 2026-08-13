@@ -1,4 +1,3 @@
-version: '3'
 services:
   cowrie:
     image: cowrie/cowrie:latest
@@ -52,6 +51,8 @@ services:
     environment:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Limite la RAM pour ta VM VMware
+      # Appliqué avant le parseur Elasticsearch : contourne le bug cgroup v2 de la JVM dans cette VM.
+      - "JDK_JAVA_OPTIONS=-XX:-UseContainerSupport"
     ports:
       - "9200:9200"
     restart: always
