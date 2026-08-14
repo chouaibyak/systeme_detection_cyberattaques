@@ -1,48 +1,67 @@
 import numpy as np
 from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
 
 
 class SentinelML:
-    MIN_SAMPLES_FOR_ML = 8
-
-    def __init__(self, contamination=0.1):
-        self.model = IsolationForest(contamination=contamination, random_state=42, n_estimators=100)
+    def __init__(self, contamination=0.05):
+        self.model = IsolationForest(contamination=contamination, random_state=42)
+        self.scaler = StandardScaler()
         self.is_trained = False
 
     def predict_anomalies(self, features_by_ip):
-        if not features_by_ip: return {}
+        if len(features_by_ip) < 2:
+            # Mode Labo : Si une seule IP, on simule une baseline normale
+            # pour que l'IA puisse comparer l'IP actuelle à "quelque chose"
+            baseline = [1, 1, 0, 0, 1, 0.1, 10] # Un utilisateur normal type
+            X = [baseline]
+        else:
+            X = []
 
         ips = list(features_by_ip.keys())
-        X = []
         for ip in ips:
             f = features_by_ip[ip]
-            # MISE À JOUR : On utilise danger_score ici
-            vector = [
+            X.append([
                 f["total_events"],
                 f["unique_ports"],
                 f["login_attempts"],
-                f["danger_score"], 
+                f["danger_score"],
                 f["unique_protocols"],
-                f["eps"], 
+                f["eps"],
                 f["iat"]
-            ]
-            X.append(vector)
-
-        if len(ips) < self.MIN_SAMPLES_FOR_ML:
-            return {ip: {"is_alert": False, "risk_score": 0.0, "status": "BASELINE INSUFFICIENT"} for ip in ips}
+            ])
 
         X_array = np.array(X)
-        predictions = self.model.fit_predict(X_array)
-        scores = self.model.decision_function(X_array)
+        
+        # 1. NORMALISATION : Indispensable pour que l'IA comprenne les petites variations
+        X_scaled = self.scaler.fit_transform(X_array)
+
+        # 2. ENTRAÎNEMENT ET PRÉDICTION
+        self.model.fit(X_scaled)
+        predictions = self.model.predict(X_scaled)
+        scores = self.model.decision_function(X_scaled)
 
         results = {}
+        # On ignore le premier index si on a ajouté la baseline manuelle
+        offset = 1 if len(features_by_ip) < 2 else 0
+        
         for i, ip in enumerate(ips):
-            risk_score = round(abs(scores[i]) * 100, 2)
-            is_anomaly = True if predictions[i] == -1 else False
+            idx = i + offset
+            # Un score très bas (négatif) = Anomalie forte
+            risk_score = round(abs(scores[idx]) * 100, 2)
+            
+            # CRITÈRES D'ALERTE : ML ou Seuil de sécurité critique (Hydra)
+            is_anomaly = predictions[idx] == -1
+            
+            # Sécurité supplémentaire pour Hydra (Heuristique)
+            if features_by_ip[ip]["login_attempts"] > 10 or features_by_ip[ip]["eps"] > 15:
+                is_anomaly = True
+                risk_score = max(risk_score, 85.0)
+
             results[ip] = {
                 "is_alert": is_anomaly,
                 "risk_score": risk_score,
-                "status": "ATTACK DETECTED" if is_anomaly else "✅ NORMAL"
+                "status": "ATTACK DETECTED" if is_anomaly else "NORMAL"
             }
         return results
 

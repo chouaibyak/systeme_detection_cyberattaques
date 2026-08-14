@@ -52,41 +52,42 @@ class FeatureExtractor:
                 sessions[log["source_ip"]].append(log)
 
         features_by_ip = {}
+        
         for ip, logs in sessions.items():
-            # --- 1. Features Classiques ---
             total_events = len(logs)
-            unique_ports = len(set([l["dst_port"] for l in logs if l["dst_port"]]))
-            login_attempts = sum(1 for l in logs if "login" in str(l["event_type"]).lower() or "password" in l["extra_info"])
-            unique_protocols = len(set([l["protocol"] for l in logs if l["protocol"]]))
-            universal_danger_score = sum(self._calculate_universal_danger(l) for l in logs)
-
-            # --- 2. FEATURES DE VÉLOCITÉ (Nouveau) ---
-            # On trie les logs par temps pour être sûr du calcul
-            sorted_logs = sorted(logs, key=lambda x: x["timestamp"])
             
+            # Détection précise des tentatives de brute-force
+            login_attempts = sum(1 for l in logs if 
+                "login" in str(l["event_type"]).lower() or 
+                l["event_type"] == "cowrie.login.failed" or
+                "password" in l["extra_info"]
+            )
+
+            # Score de danger cumulatif
+            danger_score = sum(self._calculate_universal_danger(l) for l in logs)
+            
+            # Si c'est du bruteforce (Hydra), le score explose
+            if login_attempts > 5:
+                danger_score += (login_attempts * 5)
+
+            # Calcul de la vélocité (Vitesse de l'attaque)
+            sorted_logs = sorted(logs, key=lambda x: x["timestamp"])
             if total_events > 1:
-                t_start = self._parse_timestamp(sorted_logs[0]["timestamp"])
-                t_end = self._parse_timestamp(sorted_logs[-1]["timestamp"])
-                duration = (t_end - t_start).total_seconds()
-                
-                # Événements par seconde (EPS)
-                # Si la durée est 0 (tout arrive en même temps), on met un score très haut
-                eps = total_events / duration if duration > 0 else total_events * 10
-                
-                # Intervalle moyen entre événements (IAT)
+                duration = (self._parse_timestamp(sorted_logs[-1]["timestamp"]) - 
+                            self._parse_timestamp(sorted_logs[0]["timestamp"])).total_seconds()
+                eps = total_events / duration if duration > 0 else 100 # 100 EPS si instantané
                 iat = duration / (total_events - 1) if duration > 0 else 0
             else:
-                eps = 0
-                iat = 10 # Valeur neutre pour un seul log
+                eps, iat = 0, 10
 
-            # Vecteur Final Enrichi
             features_by_ip[ip] = {
                 "total_events": total_events,
-                "unique_ports": unique_ports,
+                "unique_ports": len(set(l["dst_port"] for l in logs if l["dst_port"])),
                 "login_attempts": login_attempts,
-                "danger_score": universal_danger_score,
-                "unique_protocols": unique_protocols,
-                "eps": eps, # Nouvelle feature
-                "iat": iat   # Nouvelle feature
+                "danger_score": danger_score,
+                "unique_protocols": len(set(l["protocol"] for l in logs if l["protocol"])),
+                "eps": eps,
+                "iat": iat
             }
         return features_by_ip
+
