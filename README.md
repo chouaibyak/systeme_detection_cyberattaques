@@ -27,3 +27,17 @@ après le redémarrage avec :
 ```bash
 curl http://localhost:9200/_cat/indices?v
 ```
+
+## Catalogue MITRE ATT&CK
+
+L'image `fastapi` intègre le bundle officiel Enterprise ATT&CK STIX 2.1
+version 19.1. L'enrichissement MITRE fonctionne ainsi sans accès Internet au
+moment où un log est analysé, y compris pendant la phase de baseline ML.
+
+Pour mettre à jour explicitement le catalogue, reconstruisez l'image avec la
+version ATT&CK voulue :
+
+```bash
+docker compose build --build-arg MITRE_ATTACK_VERSION=19.1 fastapi
+docker compose up -d --force-recreate fastapi
+```

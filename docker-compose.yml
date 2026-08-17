@@ -1,8 +1,10 @@
-version: '3'
 services:
   cowrie:
     image: cowrie/cowrie:latest
     container_name: cowrie
+    # Les journaux montés depuis l'hôte appartiennent à l'utilisateur local
+    # (UID/GID 1000). Cette identité permet à jsonlog de les ouvrir en écriture.
+    user: "1000:1000"
     restart: always
     ports:
       - "2222:2222"
@@ -37,8 +39,8 @@ services:
       - ./honeypot/honeytrap/assets:/config/assets:ro
     ports:
       - "80:80"
-      - "443:443"
-      - "3306:3306"
+      - "8443:443"
+      - "3307:3306"
       - "5900:5900"
     restart: always
 
@@ -49,9 +51,16 @@ services:
     environment:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Limite la RAM pour ta VM VMware
+      # Appliqué avant le parseur Elasticsearch : contourne le bug cgroup v2 de la JVM dans cette VM.
+      - "JDK_JAVA_OPTIONS=-XX:-UseContainerSupport"
     ports:
       - "9200:9200"
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     volumes:
       - esdata:/usr/share/elasticsearch/data
 
@@ -59,11 +68,14 @@ services:
   fastapi:
     build: ./analyse_layer
     container_name: fastapi
+    environment:
+      - PYTHONUNBUFFERED=1
     ports:
       - "8000:8000"
     restart: always
     depends_on:
-      - elasticsearch # Attend que la base de données soit lancée
+      elasticsearch:
+        condition: service_healthy
 
   # 4. Le transporteur (Shipper)
   shipper:
@@ -72,8 +84,11 @@ services:
     restart: always
     volumes:
       - ./honeypot/cowrie/var/log/cowrie:/var/log/cowrie:ro
+      - ./honeypot/dionaea/var:/opt/dionaea/var/lib/dionaea:ro
+      - ./honeypot/honeytrap/log:/var/log/honeytrap:ro
     depends_on:
-      - fastapi
+      fastapi:
+        condition: service_started
 volumes:
   esdata:
     # Volume volontairement externe : `docker compose down -v` ne le supprime pas.
