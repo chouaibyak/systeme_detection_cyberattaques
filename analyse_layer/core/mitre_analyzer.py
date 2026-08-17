@@ -15,6 +15,11 @@ class MitreAnalyzer:
        # 1. PRÉ-TRAITEMENT : On compile les Regex pour la performance
         # On utilise re.IGNORECASE pour ne pas se soucier de la casse
         self.COMMAND_PATTERNS = {
+
+            # --- IMPACT (RANSOMWARE SPÉCIFIQUE) ---
+            # On détecte les mots-clés de rançon, de chiffrement et les extensions suspectes
+            "T1486": re.compile(r"(encrypt|crypt|decrypt|ransom|pay|btc|bitcoin|locked|recovery|README_RECOVERY)", re.I),
+
             # --- DISCOVERY ---
             "T1087": re.compile(r"\b(whoami|id|getent|useradd|groupadd)\b|cat.*/etc/(passwd|shadow|group)", re.I),
             "T1082": re.compile(r"\b(uname|hostname|uptime|dmesg)\b|cat.*/proc/(cpuinfo|meminfo|version)", re.I),
@@ -147,19 +152,34 @@ class MitreAnalyzer:
             port = None
         tech_id = None
 
-        if normalized_log["honeypot"] == "cowrie":
+        # 1. DÉTECTION GLOBALE DE RANSOMWARE (T1486)
+        # On inspecte les valeurs de extra_info de manière transversale pour tous les honeypots
+        for val in extra.values():
+            if isinstance(val, str):
+                cleaned_val = self.clean_command(val)
+                if self.COMMAND_PATTERNS["T1486"].search(cleaned_val):
+                    tech_id = "T1486"
+                    break
+
+        if tech_id:
+            pass
+        elif normalized_log["honeypot"] == "cowrie":
             if "password" in extra:
                 tech_id = "T1110"
             elif "input" in extra:
                 # 1. Nettoyage de la commande
                 raw_cmd = extra["input"]
                 clean_cmd = self.clean_command(raw_cmd)
-                
-                # 2. MATCHING PAR REGEX
-                for tid, pattern in self.COMMAND_PATTERNS.items():
-                    if pattern.search(clean_cmd):
-                        tech_id = tid
-                        break
+
+                # On vérifie d'abord si c'est un Ransomware (Impact) avant de dire que c'est juste une exécution de commande
+                if self.COMMAND_PATTERNS["T1486"].search(clean_cmd):
+                    tech_id = "T1486"
+                else:
+                    # 2. MATCHING PAR REGEX
+                    for tid, pattern in self.COMMAND_PATTERNS.items():
+                        if pattern.search(clean_cmd):
+                            tech_id = tid
+                            break
                 
                 if not tech_id:
                     tech_id = "T1059"
