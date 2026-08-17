@@ -18,7 +18,7 @@ honeypot/cowrie/var/log/
 
 # Dionaea generated logs/data
 honeypot/dionaea/var/*.json
-honeypot/dionaea/var/*.sqlite
+/honeypot/dionaea/var/*.sqlite
 
 # =========================
 # Python cache
