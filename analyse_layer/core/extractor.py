@@ -31,8 +31,12 @@ class FeatureExtractor:
         score = 0
         if source == "cowrie":
             cmd = str(extra.get("input", "")).lower()
-            for kw, weight in self.COWRIE_WEIGHTS.items():
-                if kw in cmd: score = max(score, weight)
+            ransom_keywords = ["btc", "pay", "encrypt", "decrypt", "locked", "bitcoin"]
+            if any(kw in cmd for kw in ransom_keywords):
+                score = 100  # Score maximal pour une tentative de ransomware
+            else:
+                for kw, weight in self.COWRIE_WEIGHTS.items():
+                    if kw in cmd: score = max(score, weight)
         elif source == "dionaea":
             proto = str(log.get("protocol", "")).lower()
             for proto_name, weight in self.DIONAEA_WEIGHTS.items():
