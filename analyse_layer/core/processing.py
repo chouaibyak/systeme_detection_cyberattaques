@@ -1,8 +1,18 @@
+import asyncio
+import logging
+from threading import Lock
+
 from .normalizer import LogNormalizer
 from .extractor import FeatureExtractor
 from .detector import SentinelML, ThreatDetector
 from .mitre_analyzer import MitreAnalyzer
+from .cyberdna_contract import CyberDNAAlertFactory
 from services.elastic_service import get_recent_logs # <--- Importation du nouveau service
+from investigation_layer.core.graph_builder import CyberDNAGraphBuilder
+from investigation_layer.services.neo4j_service import Neo4jService
+
+
+logger = logging.getLogger(__name__)
 
 # Instances globales
 normalizer = LogNormalizer()
@@ -10,6 +20,32 @@ extractor = FeatureExtractor()
 ml_engine = SentinelML(contamination=0.1)
 threat_detector = ThreatDetector()
 mitre_analyzer = MitreAnalyzer()
+cyberdna_alert_factory = CyberDNAAlertFactory()
+neo4j_service = Neo4jService()
+graph_builder = CyberDNAGraphBuilder(neo4j_service)
+neo4j_schema_ready = False
+neo4j_schema_lock = Lock()
+
+
+def close_neo4j():
+    """Libere le driver Neo4j si une connexion a ete ouverte."""
+    neo4j_service.close()
+
+
+def persist_cyberdna_alert(cyberdna_alert):
+    """Projection best-effort : une indisponibilite Neo4j ne bloque pas ES."""
+    global neo4j_schema_ready
+    try:
+        with neo4j_schema_lock:
+            if not neo4j_schema_ready:
+                graph_builder.initialise_schema()
+                neo4j_schema_ready = True
+        graph_builder.ingest_alert(cyberdna_alert)
+    except Exception:
+        logger.exception(
+            "Echec de projection CyberDNA vers Neo4j pour l'alerte %s",
+            cyberdna_alert.get("alert_id", "unknown"),
+        )
 
 async def process_log_for_ml(raw_log):
     # 1. Normalisation du log actuel
@@ -51,6 +87,21 @@ async def process_log_for_ml(raw_log):
             raw_log["analysis"]["mitre_attack"] = mitre_info
 
         if v["is_alert"]:
+            # Le contrat reste attache au log pour Elasticsearch, puis est
+            # projete vers Neo4j comme destination d'investigation secondaire.
+            cyberdna_alert = cyberdna_alert_factory.build(
+                norm, v, all_features[target_ip], mitre_info, raw_log
+            )
+            raw_log["analysis"]["cyberdna_alert"] = (
+                cyberdna_alert.model_dump(exclude_none=True)
+                if hasattr(cyberdna_alert, "model_dump")
+                else cyberdna_alert.dict(exclude_none=True)
+            )
+            # Neo4j ne doit pas retarder l'indexation Elasticsearch suivante.
+            # L'erreur est capturee dans persist_cyberdna_alert.
+            asyncio.create_task(
+                asyncio.to_thread(persist_cyberdna_alert, raw_log["analysis"]["cyberdna_alert"])
+            )
             print(f"\n[!!! ALERTE SÉCURITÉ !!!]")
             print(f"IP Attaquante : {target_ip}")
             if mitre_info:

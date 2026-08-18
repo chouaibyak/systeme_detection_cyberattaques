@@ -1,12 +1,13 @@
 from fastapi import FastAPI, BackgroundTasks, Request
 from services.elastic_service import index_log_to_elastic, close_elastic
-from core.processing import process_log_for_ml
+from core.processing import close_neo4j, process_log_for_ml
 
 app = FastAPI(title="SentinelAI - Analyse Layer")
 
 @app.on_event("shutdown")
 async def shutdown():
     await close_elastic()
+    close_neo4j()
 
 @app.post("/ingest")
 async def ingest_logs(request: Request, background_tasks: BackgroundTasks):

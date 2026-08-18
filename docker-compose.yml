@@ -11,8 +11,10 @@ services:
     volumes:
       - ./honeypot/cowrie/etc/cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg
       - ./honeypot/cowrie/var:/cowrie/cowrie-git/var
-
+    networks:
+      - detection_network
   
+
   dionaea:
     image: dinotools/dionaea:latest
     container_name: dionaea
@@ -30,6 +32,9 @@ services:
     volumes:
       - ./honeypot/dionaea/etc/dionaea:/opt/dionaea/etc/dionaea
       - ./honeypot/dionaea/var:/opt/dionaea/var/lib/dionaea
+    networks:
+      - detection_network
+
   honeytrap:
     image: honeytrap/honeytrap:latest
     container_name: honeytrap
@@ -43,6 +48,8 @@ services:
       - "3307:3306"
       - "5900:5900"
     restart: always
+    networks:
+      - detection_network
 
   # 2. La Base de Données (Ajouté)
   elasticsearch:
@@ -63,10 +70,14 @@ services:
       retries: 12
     volumes:
       - esdata:/usr/share/elasticsearch/data
+    networks:
+      - detection_network
 
   # 3. L'API d'Analyse
   fastapi:
-    build: ./analyse_layer
+    build:
+      context: .
+      dockerfile: analyse_layer/Dockerfile
     container_name: fastapi
     environment:
       - PYTHONUNBUFFERED=1
@@ -76,6 +87,8 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+    networks:
+      - detection_network
 
   # 4. Le transporteur (Shipper)
   shipper:
@@ -89,9 +102,40 @@ services:
     depends_on:
       fastapi:
         condition: service_started
+    networks:
+      - detection_network
+
+  
+  neo4j:
+    image: neo4j:5.12 # Version stable
+    container_name: cyberdna_neo4j
+    ports:
+      - "7474:7474" # Interface HTTP (Navigateur)
+      - "7687:7687" # Protocole Bolt (Connexion Python)
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    environment:
+      # On utilise les variables définies dans le fichier .env
+      - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
+    restart: unless-stopped
+    networks:
+      - detection_network # Assure-toi d'utiliser le même réseau que FastAPI
+
+
+  # --- DÉFINITION DES RÉSEAUX ---
+networks:
+  detection_network:
+    driver: bridge
+
+# --- DÉFINITION DES VOLUMES ---
 volumes:
   esdata:
     # Volume volontairement externe : `docker compose down -v` ne le supprime pas.
     # Créer une seule fois avec : docker volume create pfa_esdata
     external: true
     name: pfa_esdata
+  neo4j_data:
+  neo4j_logs:
+
+  

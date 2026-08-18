@@ -6,3 +6,4 @@ aiohttp
 pydantic
 scikit-learn
 numpy
+neo4j>=5.12,<6

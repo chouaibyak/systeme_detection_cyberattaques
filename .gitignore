@@ -26,3 +26,6 @@ honeypot/dionaea/var/*.json
 __pycache__/
 **/__pycache__/
 *.py[cod]
+
+
+.env
